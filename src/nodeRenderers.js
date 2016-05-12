@@ -110,4 +110,81 @@ export default {
     commitPath(canvas, style);
   },
 
+
+  rectangle(canvas, radius, style, { offset, metadata, rect_multiplier }) {
+    const lengthOfSide = lengthOfSquareSide(radius);
+    if (!offset) {
+      offset = radius;
+    }
+    let startX = offset - lengthOfSide / 2;
+    let data = metadata;
+    if (!data) {
+      data = [{color: 'black', count: 1}];
+    }
+    let sum_counts = data.map( x => x.count )
+                         .reduce( (x, y) => x+y );
+    let max_y_length = sum_counts * rect_multiplier;
+    for (let {color, count} of data) {
+      let xLength = count / sum_counts * max_y_length;
+      canvas.fillStyle = color;
+      canvas.fillRect(startX, -lengthOfSide / 2, xLength, lengthOfSide)
+      startX += xLength;
+    }
+  },
+
+  circlestack(canvas, radius, style, { offset, metadata }) {
+    // circle takes same area as square inside given radius
+    const scaledArea = Math.pow(lengthOfSquareSide(radius), 2);
+    const scaledRadius = Math.sqrt(scaledArea / Math.PI);
+
+    let data = metadata;
+    if (!data) {
+      data = [{color: 'black', count: 1}];
+    }
+    let max_count = data.map( x => x.count ).reduce( (x, y) => Math.max(x, y) );
+    let count = 0
+    for (let {color, count} of data) {
+      let current_radius = scaledRadius * (count / max_count);
+      canvas.fillStyle = color;
+      canvas.beginPath();
+      if (count > 0) {
+        offset += current_radius;
+      }
+      canvas.arc(offset, 0, current_radius, 0, Angles.FULL, false);
+      canvas.lineTo(offset, 0)
+      canvas.fill();
+      canvas.closePath();
+      offset += current_radius;
+      count += 1;
+    }
+  },
+
+  pie(canvas, radius, style, { offset, metadata }) {
+    // circle takes same area as square inside given radius
+    const scaledArea = Math.pow(lengthOfSquareSide(radius), 2);
+    const scaledRadius = Math.sqrt(scaledArea / Math.PI);
+
+    // drawConnector(canvas, offset - scaledRadius);
+
+    let data = metadata;
+    if (!data) {
+      data = [{color: 'black', count: 1}];
+    }
+    let sum_counts = data.map( x => x.count )
+                         .reduce( (x, y) => x+y );
+    let start_angle = 0;
+    let end_angle = 0;
+
+    for (let {color, count} of data) {
+      end_angle = start_angle + (count / sum_counts) * Angles.FULL;
+      canvas.fillStyle = color;
+      canvas.beginPath();
+      canvas.arc(offset, 0, scaledRadius, start_angle, end_angle, false);
+      canvas.lineTo(offset, 0)
+      canvas.fill();
+      canvas.closePath();
+      start_angle = end_angle;
+    }
+  },
+
 };

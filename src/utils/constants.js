@@ -46,4 +46,7 @@ export const Shapes = {
   s: 'square',
   o: 'circle',
   t: 'triangle',
+  r: 'rectangle',
+  p: 'pie',
+  c: 'circlestack',
 };

@@ -131,7 +131,8 @@ export default class Branch {
     /**
      * What kind of teminal should be drawn on this node
      */
-    this.nodeShape = 'circle';
+    //this.nodeShape = 'circle';
+    this.nodeShape = 'rectangle';
 
     /**
      * The parent branch of this branch
@@ -320,20 +321,23 @@ export default class Branch {
 
   drawLeaf() {
     const { alignLabels, canvas } = this.tree;
-
+    let offset = 0;
     if (alignLabels) {
       this.drawLabelConnector();
+      offset = this.getLabelStartX() + Math.abs(this.tree.labelAlign.getLabelOffset(this));
     }
-
-    canvas.save();
-
-    nodeRenderers[this.nodeShape](canvas, this.getRadius(), this.getLeafStyle());
-
-    canvas.restore();
-
     if (this.tree.showLabels || (this.tree.hoverLabel && this.isHighlighted)) {
       this.drawLabel();
     }
+    let other_data = {};
+    other_data.offset = Math.abs(offset);
+    if (this.metadata) {
+      other_data.metadata = this.metadata;
+    }
+    
+    other_data.rect_multiplier = this.tree.rect_multiplier;
+    
+    nodeRenderers[this.nodeShape](canvas,  this.getRadius() , this.getLeafStyle(), other_data);    
   }
 
   drawHighlight(centerX, centerY) {

@@ -128,7 +128,7 @@ export default class Tree {
     this.hoverLabel = false;
     this.internalNodesSelectable = true;
 
-    this.showLabels = true;
+    this.showLabels = false;
     this.showBootstraps = false;
 
     this.setTreeType('radial');
@@ -139,6 +139,8 @@ export default class Tree {
 
     this.unselectOnClickAway = true;
 
+    this.hovered = false;
+
     if (this.useNavigator) {
       this.navigator = new Navigator(this);
     }
@@ -146,7 +148,7 @@ export default class Tree {
     /**
      * Align labels vertically
      */
-    this.alignLabels = false;
+    this.alignLabels = true;
 
     /**
      * X and Y axes of the node that is farther from the root
@@ -160,6 +162,9 @@ export default class Tree {
      */
     this.maxLabelLength = {};
 
+    this.metadata = null;
+    this.rect_multiplier = 10;
+
 
     /**
      * Override properties from config
@@ -169,16 +174,24 @@ export default class Tree {
 
     this.resizeToContainer();
 
+
+    // bind returns new function pointer so you need to assign to variable in order to remove
+    // event listener 
+    this.drag_this = this.drag.bind(this);
+    this.drop_this = this.drop.bind(this);
+    this.pickup_this = this.pickup.bind(this);
+    this.onhover_this = this.onhover.bind(this);
     this.addListener('click', this.clicked.bind(this));
 
-    this.addListener('mousedown', this.pickup.bind(this));
-    this.addListener('mouseup', this.drop.bind(this));
-    this.addListener('mouseout', this.drop.bind(this));
+    this.addListener('mousedown', this.pickup_this);
+    this.addListener('mouseup', this.drop_this);
+    this.addListener('mouseout', this.drop_this);
+    this.addListener('mousemove', this.onhover_this);
 
-    addEvent(this.canvas.canvas, 'mousemove', this.drag.bind(this));
+    this.scroll_this = this.scroll.bind(this);
     if (!this.disableZoom) {
-      addEvent(this.canvas.canvas, 'mousewheel', this.scroll.bind(this));
-      addEvent(this.canvas.canvas, 'DOMMouseScroll', this.scroll.bind(this));
+      addEvent(this.canvas.canvas, 'mousewheel', this.scroll_this);
+      addEvent(this.canvas.canvas, 'DOMMouseScroll', this.scroll_this);
     }
     addEvent(window, 'resize', () => {
       this.resizeToContainer();
@@ -187,7 +200,8 @@ export default class Tree {
   }
 
   get alignLabels() {
-    return this.showLabels && this.labelAlign && this.labelAlignEnabled;
+    // return this.showLabels && this.labelAlign && this.labelAlignEnabled;
+    return this.labelAlign && this.labelAlignEnabled;
   }
 
   set alignLabels(value) {
@@ -292,12 +306,10 @@ export default class Tree {
   }
 
   drag(event) {
-    // get window ratio
-    const ratio = getPixelRatio(this.canvas);
-
     if (!this.drawn) return false;
-
     if (this.pickedup) {
+      // get window ratio
+      const ratio = getPixelRatio(this.canvas);
       const xmove = (event.clientX - this.startx) * ratio;
       const ymove = (event.clientY - this.starty) * ratio;
       if (Math.abs(xmove) + Math.abs(ymove) > 5) {
@@ -306,24 +318,28 @@ export default class Tree {
         this.offsety = this.origy + ymove;
         this.draw();
       }
-    } else {
-      // hover
-      const e = event;
-      const nd = this.getNodeAtMousePosition(e);
+    }
+  }
 
-      if (nd && nd.interactive && (this.internalNodesSelectable || nd.leaf)) {
-        this.root.cascadeFlag('hovered', false);
-        nd.hovered = true;
-        // For mouseover tooltip to show no. of children on the internal nodes
-        if (!nd.leaf && !nd.hasCollapsedAncestor()) {
-          this.tooltip.open(e.clientX, e.clientY, nd);
-        }
-        this.containerElement.style.cursor = 'pointer';
-      } else {
-        this.tooltip.close();
-        this.root.cascadeFlag('hovered', false);
-        this.containerElement.style.cursor = 'auto';
+  onhover(event) {
+    const e = event;
+    const nd = this.getNodeAtMousePosition(e);
+
+    if (nd && nd.interactive && (this.internalNodesSelectable || nd.leaf)) {
+      this.root.cascadeFlag('hovered', false);
+      nd.hovered = true;
+      this.hovered = true;
+      // For mouseover tooltip to show no. of children on the internal nodes
+      if (!nd.leaf && !nd.hasCollapsedAncestor()) {
+        this.tooltip.open(e.clientX, e.clientY, nd);
       }
+      this.containerElement.style.cursor = 'pointer';
+      this.draw()
+    } else if (this.hovered) {
+      this.hovered = false;
+      this.root.cascadeFlag('hovered', false);
+      this.containerElement.style.cursor = 'auto';
+      this.tooltip.close();
       this.draw();
     }
   }
@@ -368,6 +384,60 @@ export default class Tree {
   drop() {
     if (!this.drawn) return false;
     this.pickedup = false;
+    this.canvas.canvas.removeEventListener('mousemove', this.drag_this);
+  }
+
+  setMetadata(metadata) {
+    if (!metadata) {
+      return;
+    }
+    this.metadata = metadata;
+    for (let leaf of this.leaves) {
+      let leaf_id = leaf.id;
+      let leaf_metadata = metadata[leaf_id];
+      leaf['metadata'] = leaf_metadata;
+    }
+    this.draw();
+  }
+
+  colorBranchesByLeafMetadata() {
+    for (let nodeId in this.branches) {
+      if (this.branches.hasOwnProperty(nodeId)) {
+        let node = this.branches[nodeId];
+        let child_metadata = node.getChildProperties('metadata')
+        if (!child_metadata) {
+          continue;
+        }
+        let colour_counts = {};
+        for (let md_list of child_metadata) {
+          if (!md_list) {
+            continue;
+          }
+          for (let {color, count} of md_list) {
+            if (colour_counts.hasOwnProperty(color)) {
+              colour_counts[color] += count;
+            } else {
+              colour_counts[color] = count;              
+            }
+          }
+        }
+        let max_color = null;
+        let max_count = 0;
+        for (let color in colour_counts) {
+          let count = colour_counts[color];
+          if (count > max_count) {
+            max_count = count;
+            max_color = color;
+          }
+        } 
+        node.colour = max_color;
+      }
+    }
+  }
+
+  setRectMetadataMultiplier(multiplier) {
+    this.rect_multiplier = multiplier;
+    this.draw();
   }
 
   findLeaves(pattern, searchProperty = 'id') {
@@ -513,6 +583,7 @@ export default class Tree {
 
     this.startx = event.clientX;
     this.starty = event.clientY;
+    this.canvas.canvas.addEventListener('mousemove', this.drag_this);
   }
 
   redrawFromBranch(node) {
