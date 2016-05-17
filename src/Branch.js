@@ -142,7 +142,7 @@ export default class Branch {
     /**
      * The relative size of the terminal of this node
      */
-    this.radius = 1.0;
+    this.radius = 10.0;
 
     /**
      * true if this branch is currently selected

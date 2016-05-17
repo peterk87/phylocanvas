@@ -131,7 +131,7 @@ export default class Tree {
     this.showLabels = false;
     this.showBootstraps = false;
 
-    this.setTreeType('radial');
+    this.setTreeType('circular');
     this.maxBranchLength = 0;
     this.lineWidth = 1.0;
     this.textSize = 7;

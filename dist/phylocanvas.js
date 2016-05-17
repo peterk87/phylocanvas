@@ -304,16 +304,18 @@ return /******/ (function(modules) { // webpackBootstrap
 	    this.hoverLabel = false;
 	    this.internalNodesSelectable = true;
 
-	    this.showLabels = true;
+	    this.showLabels = false;
 	    this.showBootstraps = false;
 
-	    this.setTreeType('radial');
+	    this.setTreeType('circular');
 	    this.maxBranchLength = 0;
 	    this.lineWidth = 1.0;
 	    this.textSize = 7;
 	    this.font = 'sans-serif';
 
 	    this.unselectOnClickAway = true;
+
+	    this.hovered = false;
 
 	    if (this.useNavigator) {
 	      this.navigator = new _Navigator2.default(this);
@@ -322,7 +324,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    /**
 	     * Align labels vertically
 	     */
-	    this.alignLabels = false;
+	    this.alignLabels = true;
 
 	    /**
 	     * X and Y axes of the node that is farther from the root
@@ -336,6 +338,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	     */
 	    this.maxLabelLength = {};
 
+	    this.metadata = null;
+	    this.rect_multiplier = 10;
+
 	    /**
 	     * Override properties from config
 	     */
@@ -343,16 +348,23 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    this.resizeToContainer();
 
+	    // bind returns new function pointer so you need to assign to variable in order to remove
+	    // event listener
+	    this.drag_this = this.drag.bind(this);
+	    this.drop_this = this.drop.bind(this);
+	    this.pickup_this = this.pickup.bind(this);
+	    this.onhover_this = this.onhover.bind(this);
 	    this.addListener('click', this.clicked.bind(this));
 
-	    this.addListener('mousedown', this.pickup.bind(this));
-	    this.addListener('mouseup', this.drop.bind(this));
-	    this.addListener('mouseout', this.drop.bind(this));
+	    this.addListener('mousedown', this.pickup_this);
+	    this.addListener('mouseup', this.drop_this);
+	    this.addListener('mouseout', this.drop_this);
+	    this.addListener('mousemove', this.onhover_this);
 
-	    addEvent(this.canvas.canvas, 'mousemove', this.drag.bind(this));
+	    this.scroll_this = this.scroll.bind(this);
 	    if (!this.disableZoom) {
-	      addEvent(this.canvas.canvas, 'mousewheel', this.scroll.bind(this));
-	      addEvent(this.canvas.canvas, 'DOMMouseScroll', this.scroll.bind(this));
+	      addEvent(this.canvas.canvas, 'mousewheel', this.scroll_this);
+	      addEvent(this.canvas.canvas, 'DOMMouseScroll', this.scroll_this);
 	    }
 	    addEvent(window, 'resize', function () {
 	      _this2.resizeToContainer();
@@ -474,12 +486,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }, {
 	    key: 'drag',
 	    value: function drag(event) {
-	      // get window ratio
-	      var ratio = getPixelRatio(this.canvas);
-
 	      if (!this.drawn) return false;
-
 	      if (this.pickedup) {
+	        // get window ratio
+	        var ratio = getPixelRatio(this.canvas);
 	        var xmove = (event.clientX - this.startx) * ratio;
 	        var ymove = (event.clientY - this.starty) * ratio;
 	        if (Math.abs(xmove) + Math.abs(ymove) > 5) {
@@ -488,24 +498,29 @@ return /******/ (function(modules) { // webpackBootstrap
 	          this.offsety = this.origy + ymove;
 	          this.draw();
 	        }
-	      } else {
-	        // hover
-	        var e = event;
-	        var nd = this.getNodeAtMousePosition(e);
+	      }
+	    }
+	  }, {
+	    key: 'onhover',
+	    value: function onhover(event) {
+	      var e = event;
+	      var nd = this.getNodeAtMousePosition(e);
 
-	        if (nd && nd.interactive && (this.internalNodesSelectable || nd.leaf)) {
-	          this.root.cascadeFlag('hovered', false);
-	          nd.hovered = true;
-	          // For mouseover tooltip to show no. of children on the internal nodes
-	          if (!nd.leaf && !nd.hasCollapsedAncestor()) {
-	            this.tooltip.open(e.clientX, e.clientY, nd);
-	          }
-	          this.containerElement.style.cursor = 'pointer';
-	        } else {
-	          this.tooltip.close();
-	          this.root.cascadeFlag('hovered', false);
-	          this.containerElement.style.cursor = 'auto';
+	      if (nd && nd.interactive && (this.internalNodesSelectable || nd.leaf)) {
+	        this.root.cascadeFlag('hovered', false);
+	        nd.hovered = true;
+	        this.hovered = true;
+	        // For mouseover tooltip to show no. of children on the internal nodes
+	        if (!nd.leaf && !nd.hasCollapsedAncestor()) {
+	          this.tooltip.open(e.clientX, e.clientY, nd);
 	        }
+	        this.containerElement.style.cursor = 'pointer';
+	        this.draw();
+	      } else if (this.hovered) {
+	        this.hovered = false;
+	        this.root.cascadeFlag('hovered', false);
+	        this.containerElement.style.cursor = 'auto';
+	        this.tooltip.close();
 	        this.draw();
 	      }
 	    }
@@ -556,14 +571,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	    value: function drop() {
 	      if (!this.drawn) return false;
 	      this.pickedup = false;
+	      this.canvas.canvas.removeEventListener('mousemove', this.drag_this);
 	    }
 	  }, {
-	    key: 'findLeaves',
-	    value: function findLeaves(pattern) {
-	      var searchProperty = arguments.length <= 1 || arguments[1] === undefined ? 'id' : arguments[1];
-
-	      var foundLeaves = [];
-
+	    key: 'setMetadata',
+	    value: function setMetadata(metadata) {
+	      if (!metadata) {
+	        return;
+	      }
+	      this.metadata = metadata;
 	      var _iteratorNormalCompletion = true;
 	      var _didIteratorError = false;
 	      var _iteratorError = undefined;
@@ -572,9 +588,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	        for (var _iterator = this.leaves[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
 	          var leaf = _step.value;
 
-	          if (leaf[searchProperty] && leaf[searchProperty].match(pattern)) {
-	            foundLeaves.push(leaf);
-	          }
+	          var leaf_id = leaf.id;
+	          var leaf_metadata = metadata[leaf_id];
+	          leaf['metadata'] = leaf_metadata;
 	        }
 	      } catch (err) {
 	        _didIteratorError = true;
@@ -591,57 +607,180 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	      }
 
+	      this.draw();
+	    }
+	  }, {
+	    key: 'colorBranchesByLeafMetadata',
+	    value: function colorBranchesByLeafMetadata() {
+	      for (var nodeId in this.branches) {
+	        if (this.branches.hasOwnProperty(nodeId)) {
+	          var node = this.branches[nodeId];
+	          var child_metadata = node.getChildProperties('metadata');
+	          if (!child_metadata) {
+	            continue;
+	          }
+	          var colour_counts = {};
+	          var _iteratorNormalCompletion2 = true;
+	          var _didIteratorError2 = false;
+	          var _iteratorError2 = undefined;
+
+	          try {
+	            for (var _iterator2 = child_metadata[Symbol.iterator](), _step2; !(_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done); _iteratorNormalCompletion2 = true) {
+	              var md_list = _step2.value;
+
+	              if (!md_list) {
+	                continue;
+	              }
+	              var _iteratorNormalCompletion3 = true;
+	              var _didIteratorError3 = false;
+	              var _iteratorError3 = undefined;
+
+	              try {
+	                for (var _iterator3 = md_list[Symbol.iterator](), _step3; !(_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done); _iteratorNormalCompletion3 = true) {
+	                  var _step3$value = _step3.value;
+	                  var _color = _step3$value.color;
+	                  var _count = _step3$value.count;
+
+	                  if (colour_counts.hasOwnProperty(_color)) {
+	                    colour_counts[_color] += _count;
+	                  } else {
+	                    colour_counts[_color] = _count;
+	                  }
+	                }
+	              } catch (err) {
+	                _didIteratorError3 = true;
+	                _iteratorError3 = err;
+	              } finally {
+	                try {
+	                  if (!_iteratorNormalCompletion3 && _iterator3.return) {
+	                    _iterator3.return();
+	                  }
+	                } finally {
+	                  if (_didIteratorError3) {
+	                    throw _iteratorError3;
+	                  }
+	                }
+	              }
+	            }
+	          } catch (err) {
+	            _didIteratorError2 = true;
+	            _iteratorError2 = err;
+	          } finally {
+	            try {
+	              if (!_iteratorNormalCompletion2 && _iterator2.return) {
+	                _iterator2.return();
+	              }
+	            } finally {
+	              if (_didIteratorError2) {
+	                throw _iteratorError2;
+	              }
+	            }
+	          }
+
+	          var max_color = null;
+	          var max_count = 0;
+	          for (var color in colour_counts) {
+	            var count = colour_counts[color];
+	            if (count > max_count) {
+	              max_count = count;
+	              max_color = color;
+	            }
+	          }
+	          node.colour = max_color;
+	        }
+	      }
+	    }
+	  }, {
+	    key: 'setRectMetadataMultiplier',
+	    value: function setRectMetadataMultiplier(multiplier) {
+	      this.rect_multiplier = multiplier;
+	      this.draw();
+	    }
+	  }, {
+	    key: 'findLeaves',
+	    value: function findLeaves(pattern) {
+	      var searchProperty = arguments.length <= 1 || arguments[1] === undefined ? 'id' : arguments[1];
+
+	      var foundLeaves = [];
+
+	      var _iteratorNormalCompletion4 = true;
+	      var _didIteratorError4 = false;
+	      var _iteratorError4 = undefined;
+
+	      try {
+	        for (var _iterator4 = this.leaves[Symbol.iterator](), _step4; !(_iteratorNormalCompletion4 = (_step4 = _iterator4.next()).done); _iteratorNormalCompletion4 = true) {
+	          var leaf = _step4.value;
+
+	          if (leaf[searchProperty] && leaf[searchProperty].match(pattern)) {
+	            foundLeaves.push(leaf);
+	          }
+	        }
+	      } catch (err) {
+	        _didIteratorError4 = true;
+	        _iteratorError4 = err;
+	      } finally {
+	        try {
+	          if (!_iteratorNormalCompletion4 && _iterator4.return) {
+	            _iterator4.return();
+	          }
+	        } finally {
+	          if (_didIteratorError4) {
+	            throw _iteratorError4;
+	          }
+	        }
+	      }
+
 	      return foundLeaves;
 	    }
 	  }, {
 	    key: 'updateLeaves',
 	    value: function updateLeaves(leaves, property, value) {
-	      var _iteratorNormalCompletion2 = true;
-	      var _didIteratorError2 = false;
-	      var _iteratorError2 = undefined;
+	      var _iteratorNormalCompletion5 = true;
+	      var _didIteratorError5 = false;
+	      var _iteratorError5 = undefined;
 
 	      try {
-	        for (var _iterator2 = this.leaves[Symbol.iterator](), _step2; !(_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done); _iteratorNormalCompletion2 = true) {
-	          var leaf = _step2.value;
+	        for (var _iterator5 = this.leaves[Symbol.iterator](), _step5; !(_iteratorNormalCompletion5 = (_step5 = _iterator5.next()).done); _iteratorNormalCompletion5 = true) {
+	          var leaf = _step5.value;
 
 	          leaf[property] = !value;
 	        }
 	      } catch (err) {
-	        _didIteratorError2 = true;
-	        _iteratorError2 = err;
+	        _didIteratorError5 = true;
+	        _iteratorError5 = err;
 	      } finally {
 	        try {
-	          if (!_iteratorNormalCompletion2 && _iterator2.return) {
-	            _iterator2.return();
+	          if (!_iteratorNormalCompletion5 && _iterator5.return) {
+	            _iterator5.return();
 	          }
 	        } finally {
-	          if (_didIteratorError2) {
-	            throw _iteratorError2;
+	          if (_didIteratorError5) {
+	            throw _iteratorError5;
 	          }
 	        }
 	      }
 
-	      var _iteratorNormalCompletion3 = true;
-	      var _didIteratorError3 = false;
-	      var _iteratorError3 = undefined;
+	      var _iteratorNormalCompletion6 = true;
+	      var _didIteratorError6 = false;
+	      var _iteratorError6 = undefined;
 
 	      try {
-	        for (var _iterator3 = leaves[Symbol.iterator](), _step3; !(_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done); _iteratorNormalCompletion3 = true) {
-	          var _leaf = _step3.value;
+	        for (var _iterator6 = leaves[Symbol.iterator](), _step6; !(_iteratorNormalCompletion6 = (_step6 = _iterator6.next()).done); _iteratorNormalCompletion6 = true) {
+	          var _leaf = _step6.value;
 
 	          _leaf[property] = value;
 	        }
 	      } catch (err) {
-	        _didIteratorError3 = true;
-	        _iteratorError3 = err;
+	        _didIteratorError6 = true;
+	        _iteratorError6 = err;
 	      } finally {
 	        try {
-	          if (!_iteratorNormalCompletion3 && _iterator3.return) {
-	            _iterator3.return();
+	          if (!_iteratorNormalCompletion6 && _iterator6.return) {
+	            _iterator6.return();
 	          }
 	        } finally {
-	          if (_didIteratorError3) {
-	            throw _iteratorError3;
+	          if (_didIteratorError6) {
+	            throw _iteratorError6;
 	          }
 	        }
 	      }
@@ -691,13 +830,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return;
 	      }
 
-	      var _iteratorNormalCompletion4 = true;
-	      var _didIteratorError4 = false;
-	      var _iteratorError4 = undefined;
+	      var _iteratorNormalCompletion7 = true;
+	      var _didIteratorError7 = false;
+	      var _iteratorError7 = undefined;
 
 	      try {
-	        for (var _iterator4 = Object.keys(_parsers2.default)[Symbol.iterator](), _step4; !(_iteratorNormalCompletion4 = (_step4 = _iterator4.next()).done); _iteratorNormalCompletion4 = true) {
-	          var parserName = _step4.value;
+	        for (var _iterator7 = Object.keys(_parsers2.default)[Symbol.iterator](), _step7; !(_iteratorNormalCompletion7 = (_step7 = _iterator7.next()).done); _iteratorNormalCompletion7 = true) {
+	          var parserName = _step7.value;
 
 	          var parser = _parsers2.default[parserName];
 
@@ -707,16 +846,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	          }
 	        }
 	      } catch (err) {
-	        _didIteratorError4 = true;
-	        _iteratorError4 = err;
+	        _didIteratorError7 = true;
+	        _iteratorError7 = err;
 	      } finally {
 	        try {
-	          if (!_iteratorNormalCompletion4 && _iterator4.return) {
-	            _iterator4.return();
+	          if (!_iteratorNormalCompletion7 && _iterator7.return) {
+	            _iterator7.return();
 	          }
 	        } finally {
-	          if (_didIteratorError4) {
-	            throw _iteratorError4;
+	          if (_didIteratorError7) {
+	            throw _iteratorError7;
 	          }
 	        }
 	      }
@@ -805,6 +944,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	      this.startx = event.clientX;
 	      this.starty = event.clientY;
+	      this.canvas.canvas.addEventListener('mousemove', this.drag_this);
 	    }
 	  }, {
 	    key: 'redrawFromBranch',
@@ -925,13 +1065,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 
 	        if (array.length) {
-	          var _iteratorNormalCompletion5 = true;
-	          var _didIteratorError5 = false;
-	          var _iteratorError5 = undefined;
+	          var _iteratorNormalCompletion8 = true;
+	          var _didIteratorError8 = false;
+	          var _iteratorError8 = undefined;
 
 	          try {
-	            for (var _iterator5 = array[Symbol.iterator](), _step5; !(_iteratorNormalCompletion5 = (_step5 = _iterator5.next()).done); _iteratorNormalCompletion5 = true) {
-	              var id = _step5.value;
+	            for (var _iterator8 = array[Symbol.iterator](), _step8; !(_iteratorNormalCompletion8 = (_step8 = _iterator8.next()).done); _iteratorNormalCompletion8 = true) {
+	              var id = _step8.value;
 
 	              if (!(id in this.branches)) {
 	                continue;
@@ -939,16 +1079,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	              this.branches[id].setDisplay(options);
 	            }
 	          } catch (err) {
-	            _didIteratorError5 = true;
-	            _iteratorError5 = err;
+	            _didIteratorError8 = true;
+	            _iteratorError8 = err;
 	          } finally {
 	            try {
-	              if (!_iteratorNormalCompletion5 && _iterator5.return) {
-	                _iterator5.return();
+	              if (!_iteratorNormalCompletion8 && _iterator8.return) {
+	                _iterator8.return();
 	              }
 	            } finally {
-	              if (_didIteratorError5) {
-	                throw _iteratorError5;
+	              if (_didIteratorError8) {
+	                throw _iteratorError8;
 	              }
 	            }
 	          }
@@ -1124,26 +1264,50 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }, {
 	    key: 'getBounds',
 	    value: function getBounds() {
-	      var minx = this.root.startx;
-	      var maxx = this.root.startx;
-	      var miny = this.root.starty;
-	      var maxy = this.root.starty;
+	      var leaves = arguments.length <= 0 || arguments[0] === undefined ? this.leaves : arguments[0];
 
-	      for (var i = this.leaves.length; i--;) {
-	        var bounds = this.leaves[i].getBounds();
+	      var minx = leaves[0].startx;
+	      var maxx = leaves[0].startx;
+	      var miny = leaves[0].starty;
+	      var maxy = leaves[0].starty;
 
-	        minx = Math.min(minx, bounds.minx);
-	        maxx = Math.max(maxx, bounds.maxx);
-	        miny = Math.min(miny, bounds.miny);
-	        maxy = Math.max(maxy, bounds.maxy);
+	      var _iteratorNormalCompletion9 = true;
+	      var _didIteratorError9 = false;
+	      var _iteratorError9 = undefined;
+
+	      try {
+	        for (var _iterator9 = leaves[Symbol.iterator](), _step9; !(_iteratorNormalCompletion9 = (_step9 = _iterator9.next()).done); _iteratorNormalCompletion9 = true) {
+	          var leaf = _step9.value;
+
+	          var bounds = leaf.getBounds();
+	          minx = Math.min(minx, bounds.minx);
+	          maxx = Math.max(maxx, bounds.maxx);
+	          miny = Math.min(miny, bounds.miny);
+	          maxy = Math.max(maxy, bounds.maxy);
+	        }
+	      } catch (err) {
+	        _didIteratorError9 = true;
+	        _iteratorError9 = err;
+	      } finally {
+	        try {
+	          if (!_iteratorNormalCompletion9 && _iterator9.return) {
+	            _iterator9.return();
+	          }
+	        } finally {
+	          if (_didIteratorError9) {
+	            throw _iteratorError9;
+	          }
+	        }
 	      }
+
 	      return [[minx, miny], [maxx, maxy]];
 	    }
 	  }, {
 	    key: 'fitInPanel',
 	    value: function fitInPanel() {
+	      var bounds = arguments.length <= 0 || arguments[0] === undefined ? this.getBounds() : arguments[0];
+
 	      var canvasSize = [this.canvas.canvas.width - this.padding * 2, this.canvas.canvas.height - this.padding * 2];
-	      var bounds = this.getBounds();
 	      var treeSize = [bounds[1][0] - bounds[0][0], bounds[1][1] - bounds[0][1]];
 	      var pixelRatio = getPixelRatio(this.canvas);
 	      var xZoomRatio = canvasSize[0] / treeSize[0];
@@ -1185,28 +1349,28 @@ return /******/ (function(modules) { // webpackBootstrap
 	      if (!this.originalTree.branches) return;
 
 	      this.branches = this.originalTree.branches;
-	      var _iteratorNormalCompletion6 = true;
-	      var _didIteratorError6 = false;
-	      var _iteratorError6 = undefined;
+	      var _iteratorNormalCompletion10 = true;
+	      var _didIteratorError10 = false;
+	      var _iteratorError10 = undefined;
 
 	      try {
-	        for (var _iterator6 = Object.keys(this.originalTree.branchLengths)[Symbol.iterator](), _step6; !(_iteratorNormalCompletion6 = (_step6 = _iterator6.next()).done); _iteratorNormalCompletion6 = true) {
-	          var n = _step6.value;
+	        for (var _iterator10 = Object.keys(this.originalTree.branchLengths)[Symbol.iterator](), _step10; !(_iteratorNormalCompletion10 = (_step10 = _iterator10.next()).done); _iteratorNormalCompletion10 = true) {
+	          var n = _step10.value;
 
 	          this.branches[n].branchLength = this.originalTree.branchLengths[n];
 	          this.branches[n].parent = this.originalTree.parents[n];
 	        }
 	      } catch (err) {
-	        _didIteratorError6 = true;
-	        _iteratorError6 = err;
+	        _didIteratorError10 = true;
+	        _iteratorError10 = err;
 	      } finally {
 	        try {
-	          if (!_iteratorNormalCompletion6 && _iterator6.return) {
-	            _iterator6.return();
+	          if (!_iteratorNormalCompletion10 && _iterator10.return) {
+	            _iterator10.return();
 	          }
 	        } finally {
-	          if (_didIteratorError6) {
-	            throw _iteratorError6;
+	          if (_didIteratorError10) {
+	            throw _iteratorError10;
 	          }
 	        }
 	      }
@@ -1242,7 +1406,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }, {
 	    key: 'alignLabels',
 	    get: function get() {
-	      return this.showLabels && this.labelAlign && this.labelAlignEnabled;
+	      // return this.showLabels && this.labelAlign && this.labelAlignEnabled;
+	      return this.labelAlign && this.labelAlignEnabled;
 	    },
 	    set: function set(value) {
 	      this.labelAlignEnabled = value;
@@ -1594,7 +1759,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	  x: 'star',
 	  s: 'square',
 	  o: 'circle',
-	  t: 'triangle'
+	  t: 'triangle',
+	  r: 'rectangle',
+	  p: 'pie',
+	  c: 'circlestack'
 	};
 
 /***/ },
@@ -1752,7 +1920,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	    /**
 	     * What kind of teminal should be drawn on this node
 	     */
-	    this.nodeShape = 'circle';
+	    //this.nodeShape = 'circle';
+	    this.nodeShape = 'rectangle';
 
 	    /**
 	     * The parent branch of this branch
@@ -1762,7 +1931,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    /**
 	     * The relative size of the terminal of this node
 	     */
-	    this.radius = 1.0;
+	    this.radius = 10.0;
 
 	    /**
 	     * true if this branch is currently selected
@@ -1941,20 +2110,23 @@ return /******/ (function(modules) { // webpackBootstrap
 	      var alignLabels = _tree2.alignLabels;
 	      var canvas = _tree2.canvas;
 
-
+	      var offset = 0;
 	      if (alignLabels) {
 	        this.drawLabelConnector();
+	        offset = this.getLabelStartX() + Math.abs(this.tree.labelAlign.getLabelOffset(this));
 	      }
-
-	      canvas.save();
-
-	      _nodeRenderers2.default[this.nodeShape](canvas, this.getRadius(), this.getLeafStyle());
-
-	      canvas.restore();
-
 	      if (this.tree.showLabels || this.tree.hoverLabel && this.isHighlighted) {
 	        this.drawLabel();
 	      }
+	      var other_data = {};
+	      other_data.offset = Math.abs(offset);
+	      if (this.metadata) {
+	        other_data.metadata = this.metadata;
+	      }
+
+	      other_data.rect_multiplier = this.tree.rect_multiplier;
+
+	      _nodeRenderers2.default[this.nodeShape](canvas, this.getRadius(), this.getLeafStyle(), other_data);
 	    }
 	  }, {
 	    key: 'drawHighlight',
@@ -2100,6 +2272,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }, {
 	    key: 'redrawTreeFromBranch',
 	    value: function redrawTreeFromBranch() {
+	      if (this.collapsed) {
+	        this.expand();
+	      }
 	      this.tree.redrawFromBranch(this);
 	    }
 	  }, {
@@ -2312,7 +2487,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }, {
 	    key: 'getLabelStartX',
 	    value: function getLabelStartX() {
-	      var _getLeafStyle = this.getLeafStyle();
+	      var includeZoom = arguments.length <= 0 || arguments[0] === undefined ? true : arguments[0];
+
+	      var _getLeafStyle = this.getLeafStyle(includeZoom);
 
 	      var lineWidth = _getLeafStyle.lineWidth;
 
@@ -2321,33 +2498,39 @@ return /******/ (function(modules) { // webpackBootstrap
 	      var offset = this.getDiameter();
 
 	      if (this.isHighlighted && !hasLabelConnector) {
-	        offset += this.getHighlightSize() - this.getRadius();
+	        offset += this.getHighlightSize(includeZoom) - this.getRadius();
 	      }
 
 	      if (!this.isHighlighted && !hasLabelConnector) {
 	        offset += lineWidth / 2;
 	      }
 
-	      return offset + Math.min(this.tree.labelPadding, this.tree.labelPadding / this.tree.zoom);
+	      return offset + Math.min(this.tree.labelPadding, this.tree.labelPadding / (includeZoom ? this.tree.zoom : 1));
 	    }
 	  }, {
 	    key: 'getHighlightLineWidth',
 	    value: function getHighlightLineWidth() {
-	      return this.tree.highlightWidth / this.tree.zoom;
+	      var includeZoom = arguments.length <= 0 || arguments[0] === undefined ? true : arguments[0];
+
+	      return this.tree.highlightWidth / (includeZoom ? this.tree.zoom : 1);
 	    }
 	  }, {
 	    key: 'getHighlightRadius',
 	    value: function getHighlightRadius() {
-	      var offset = this.getHighlightLineWidth() * this.tree.highlightSize;
+	      var includeZoom = arguments.length <= 0 || arguments[0] === undefined ? true : arguments[0];
 
-	      offset += this.getLeafStyle().lineWidth / this.tree.highlightSize;
+	      var offset = this.getHighlightLineWidth(includeZoom) * this.tree.highlightSize;
+
+	      offset += this.getLeafStyle(includeZoom).lineWidth / this.tree.highlightSize;
 
 	      return this.leaf ? this.getRadius() + offset : offset * 0.666;
 	    }
 	  }, {
 	    key: 'getHighlightSize',
 	    value: function getHighlightSize() {
-	      return this.getHighlightRadius() + this.getHighlightLineWidth();
+	      var includeZoom = arguments.length <= 0 || arguments[0] === undefined ? true : arguments[0];
+
+	      return this.getHighlightRadius(includeZoom) + this.getHighlightLineWidth(includeZoom);
 	    }
 	  }, {
 	    key: 'rotate',
@@ -2398,10 +2581,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }, {
 	    key: 'getTotalLength',
 	    value: function getTotalLength() {
+	      var includeZoom = arguments.length <= 0 || arguments[0] === undefined ? true : arguments[0];
+
 	      var length = this.getRadius();
 
 	      if (this.tree.showLabels || this.tree.hoverLabel && this.isHighlighted) {
-	        length += this.getLabelStartX() + this.getLabelSize();
+	        length += this.getLabelStartX(includeZoom) + this.getLabelSize();
 	      }
 
 	      return length;
@@ -2414,7 +2599,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      var x = tree.alignLabels ? tree.labelAlign.getX(this) : this.centerx;
 	      var y = tree.alignLabels ? tree.labelAlign.getY(this) : this.centery;
 	      var nodeSize = this.getRadius();
-	      var totalLength = this.getTotalLength();
+	      var totalLength = this.getTotalLength(false);
 
 	      var minx = void 0;
 	      var maxx = void 0;
@@ -2433,16 +2618,18 @@ return /******/ (function(modules) { // webpackBootstrap
 	      }
 
 	      // uses a caching object to reduce garbage
-	      _bounds.minx = Math.min(minx, maxx, x - this.getHighlightSize());
-	      _bounds.miny = Math.min(miny, maxy, y - this.getHighlightSize());
-	      _bounds.maxx = Math.max(minx, maxx, x + this.getHighlightSize());
-	      _bounds.maxy = Math.max(miny, maxy, y + this.getHighlightSize());
+	      var step = tree.prerenderer.getStep(tree);
+	      _bounds.minx = Math.min(minx, maxx, x - step);
+	      _bounds.miny = Math.min(miny, maxy, y - step);
+	      _bounds.maxx = Math.max(minx, maxx, x + step);
+	      _bounds.maxy = Math.max(miny, maxy, y + step);
 
 	      return _bounds;
 	    }
 	  }, {
 	    key: 'getLeafStyle',
 	    value: function getLeafStyle() {
+	      var includeZoom = arguments.length <= 0 || arguments[0] === undefined ? true : arguments[0];
 	      var _leafStyle2 = this.leafStyle;
 	      var strokeStyle = _leafStyle2.strokeStyle;
 	      var fillStyle = _leafStyle2.fillStyle;
@@ -2455,7 +2642,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	      var lineWidth = typeof this.leafStyle.lineWidth !== 'undefined' ? this.leafStyle.lineWidth : this.tree.lineWidth;
 
-	      _leafStyle.lineWidth = lineWidth / zoom;
+	      _leafStyle.lineWidth = lineWidth / (includeZoom ? zoom : 1);
 
 	      return _leafStyle;
 	    }
@@ -2600,6 +2787,168 @@ return /******/ (function(modules) { // webpackBootstrap
 	    canvas.closePath();
 
 	    commitPath(canvas, style);
+	  },
+	  rectangle: function rectangle(canvas, radius, style, _ref2) {
+	    var offset = _ref2.offset;
+	    var metadata = _ref2.metadata;
+	    var rect_multiplier = _ref2.rect_multiplier;
+
+	    var lengthOfSide = lengthOfSquareSide(radius);
+	    if (!offset) {
+	      offset = radius;
+	    }
+	    var startX = offset - lengthOfSide / 2;
+	    var data = metadata;
+	    if (!data) {
+	      data = [{ color: 'black', count: 1 }];
+	    }
+	    var sum_counts = data.map(function (x) {
+	      return x.count;
+	    }).reduce(function (x, y) {
+	      return x + y;
+	    });
+	    var max_y_length = sum_counts * rect_multiplier;
+	    var _iteratorNormalCompletion = true;
+	    var _didIteratorError = false;
+	    var _iteratorError = undefined;
+
+	    try {
+	      for (var _iterator = data[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+	        var _step$value = _step.value;
+	        var color = _step$value.color;
+	        var count = _step$value.count;
+
+	        var xLength = count / sum_counts * max_y_length;
+	        canvas.fillStyle = color;
+	        canvas.fillRect(startX, -lengthOfSide / 2, xLength, lengthOfSide);
+	        startX += xLength;
+	      }
+	    } catch (err) {
+	      _didIteratorError = true;
+	      _iteratorError = err;
+	    } finally {
+	      try {
+	        if (!_iteratorNormalCompletion && _iterator.return) {
+	          _iterator.return();
+	        }
+	      } finally {
+	        if (_didIteratorError) {
+	          throw _iteratorError;
+	        }
+	      }
+	    }
+	  },
+	  circlestack: function circlestack(canvas, radius, style, _ref3) {
+	    var offset = _ref3.offset;
+	    var metadata = _ref3.metadata;
+
+	    // circle takes same area as square inside given radius
+	    var scaledArea = Math.pow(lengthOfSquareSide(radius), 2);
+	    var scaledRadius = Math.sqrt(scaledArea / Math.PI);
+
+	    var data = metadata;
+	    if (!data) {
+	      data = [{ color: 'black', count: 1 }];
+	    }
+	    var max_count = data.map(function (x) {
+	      return x.count;
+	    }).reduce(function (x, y) {
+	      return Math.max(x, y);
+	    });
+	    var count = 0;
+	    var _iteratorNormalCompletion2 = true;
+	    var _didIteratorError2 = false;
+	    var _iteratorError2 = undefined;
+
+	    try {
+	      for (var _iterator2 = data[Symbol.iterator](), _step2; !(_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done); _iteratorNormalCompletion2 = true) {
+	        var _step2$value = _step2.value;
+	        var color = _step2$value.color;
+	        var _count = _step2$value.count;
+
+	        var current_radius = scaledRadius * (_count / max_count);
+	        canvas.fillStyle = color;
+	        canvas.beginPath();
+	        if (_count > 0) {
+	          offset += current_radius;
+	        }
+	        canvas.arc(offset, 0, current_radius, 0, Angles.FULL, false);
+	        canvas.lineTo(offset, 0);
+	        canvas.fill();
+	        canvas.closePath();
+	        offset += current_radius;
+	        _count += 1;
+	      }
+	    } catch (err) {
+	      _didIteratorError2 = true;
+	      _iteratorError2 = err;
+	    } finally {
+	      try {
+	        if (!_iteratorNormalCompletion2 && _iterator2.return) {
+	          _iterator2.return();
+	        }
+	      } finally {
+	        if (_didIteratorError2) {
+	          throw _iteratorError2;
+	        }
+	      }
+	    }
+	  },
+	  pie: function pie(canvas, radius, style, _ref4) {
+	    var offset = _ref4.offset;
+	    var metadata = _ref4.metadata;
+
+	    // circle takes same area as square inside given radius
+	    var scaledArea = Math.pow(lengthOfSquareSide(radius), 2);
+	    var scaledRadius = Math.sqrt(scaledArea / Math.PI);
+
+	    // drawConnector(canvas, offset - scaledRadius);
+
+	    var data = metadata;
+	    if (!data) {
+	      data = [{ color: 'black', count: 1 }];
+	    }
+	    var sum_counts = data.map(function (x) {
+	      return x.count;
+	    }).reduce(function (x, y) {
+	      return x + y;
+	    });
+	    var start_angle = 0;
+	    var end_angle = 0;
+
+	    var _iteratorNormalCompletion3 = true;
+	    var _didIteratorError3 = false;
+	    var _iteratorError3 = undefined;
+
+	    try {
+	      for (var _iterator3 = data[Symbol.iterator](), _step3; !(_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done); _iteratorNormalCompletion3 = true) {
+	        var _step3$value = _step3.value;
+	        var color = _step3$value.color;
+	        var count = _step3$value.count;
+
+	        end_angle = start_angle + count / sum_counts * Angles.FULL;
+	        canvas.fillStyle = color;
+	        canvas.beginPath();
+	        canvas.arc(offset, 0, scaledRadius, start_angle, end_angle, false);
+	        canvas.lineTo(offset, 0);
+	        canvas.fill();
+	        canvas.closePath();
+	        start_angle = end_angle;
+	      }
+	    } catch (err) {
+	      _didIteratorError3 = true;
+	      _iteratorError3 = err;
+	    } finally {
+	      try {
+	        if (!_iteratorNormalCompletion3 && _iterator3.return) {
+	          _iterator3.return();
+	        }
+	      } finally {
+	        if (_didIteratorError3) {
+	          throw _iteratorError3;
+	        }
+	      }
+	    }
 	  }
 	};
 
@@ -3624,7 +3973,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	var format = 'newick';
 	var fileExtension = /\.nwk$/;
-	var validator = /^[\w\W\.\*\:(\),-\/]+;\s?$/gi;
+	var validator = /^[\w\W\.\*\:(\),-\/]+;?\s*$/gi;
 
 	function isTerminatingChar(terminatingChar) {
 	  return this === terminatingChar;
